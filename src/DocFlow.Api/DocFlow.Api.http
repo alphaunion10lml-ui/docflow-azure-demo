@@ -1,0 +1,21 @@
+@baseUrl = http://localhost:5088
+
+GET {{baseUrl}}/health
+
+###
+
+# Upload (multipart)
+# curl -F "file=@./README.md" {{baseUrl}}/files
+POST {{baseUrl}}/files
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="README.md"
+Content-Type: text/plain
+
+< ./README.md
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+###
+
+GET {{baseUrl}}/files
