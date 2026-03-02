@@ -1,0 +1,43 @@
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  buildConfiguration: Release
+  azureSubscription: 'sc-docflow-webinar-dev'
+  webAppName: 'docflow-webinar-dev-api'
+
+steps:
+- checkout: self
+
+- task: UseDotNet@2
+  displayName: 'Install .NET SDK 10'
+  inputs:
+    packageType: 'sdk'
+    version: '10.0.x'
+    includePreviewVersions: true
+
+- script: |
+    dotnet restore DocFlow.sln
+    dotnet build src/DocFlow.Api/DocFlow.Api.csproj -c $(buildConfiguration) --no-restore
+    dotnet publish src/DocFlow.Api/DocFlow.Api.csproj -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/api
+  displayName: 'Build & Publish API'
+
+- task: ArchiveFiles@2
+  displayName: 'Zip API'
+  inputs:
+    rootFolderOrFile: '$(Build.ArtifactStagingDirectory)/api'
+    includeRootFolder: false
+    archiveType: 'zip'
+    archiveFile: '$(Build.ArtifactStagingDirectory)/api.zip'
+    replaceExistingArchive: true
+
+- task: AzureWebApp@1
+  displayName: 'Deploy API to App Service'
+  inputs:
+    azureSubscription: '$(azureSubscription)'
+    appType: 'webAppLinux'
+    appName: '$(webAppName)'
+    package: '$(Build.ArtifactStagingDirectory)/api.zip'
