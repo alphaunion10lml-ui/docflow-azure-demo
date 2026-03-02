@@ -67,8 +67,8 @@ app.MapPost("/files", async (HttpRequest request, DocFlowStorage storage, ILogge
 
     var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        ["docflow-status"] = "pending",
-        ["docflow-fileid"] = fileId
+        ["docflow_status"] = "pending",
+        ["docflow_fileid"] = fileId
     };
 
     var headers = new BlobHttpHeaders
@@ -104,14 +104,14 @@ app.MapGet("/files", async (DocFlowStorage storage, CancellationToken ct) =>
     await foreach (var item in storage.Uploads.GetBlobsAsync(new GetBlobsOptions { Traits = BlobTraits.Metadata }, ct))
     {
         var blobName = item.Name;
-        var fileId = item.Metadata != null && item.Metadata.TryGetValue("docflow-fileid", out var mid) ? mid : null;
+        var fileId = item.Metadata != null && item.Metadata.TryGetValue("docflow_fileid", out var mid) ? mid : null;
 
         if (string.IsNullOrWhiteSpace(fileId) && BlobName.TryExtractFileIdFromUploadBlobName(blobName, out var extracted))
             fileId = extracted;
 
         fileId ??= "unknown";
 
-        var status = item.Metadata != null && item.Metadata.TryGetValue("docflow-status", out var st) ? st : "unknown";
+        var status = item.Metadata != null && item.Metadata.TryGetValue("docflow_status", out var st) ? st : "unknown";
 
         var processedBlob = storage.Processed.GetBlobClient(BlobName.ProcessedBlobName(fileId));
         var processedExists = await processedBlob.ExistsAsync(ct);
