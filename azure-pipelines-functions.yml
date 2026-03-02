@@ -1,0 +1,44 @@
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  buildConfiguration: Release
+  azureSubscription: 'sc-docflow-webinar-dev'
+  functionAppName: 'docflow-webinar-dev-func'
+  functionAppType: 'functionApp' 
+
+steps:
+- checkout: self
+
+- task: UseDotNet@2
+  displayName: 'Install .NET SDK 8'
+  inputs:
+    packageType: 'sdk'
+    version: '8.0.x'
+
+- script: |
+    dotnet restore DocFlow.sln
+    dotnet build src/DocFlow.Functions/DocFlow.Functions.csproj -c $(buildConfiguration) --no-restore
+    dotnet publish src/DocFlow.Functions/DocFlow.Functions.csproj -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/func
+  displayName: 'Build & Publish Functions'
+
+- task: ArchiveFiles@2
+  displayName: 'Zip Functions'
+  inputs:
+    rootFolderOrFile: '$(Build.ArtifactStagingDirectory)/func'
+    includeRootFolder: false
+    archiveType: 'zip'
+    archiveFile: '$(Build.ArtifactStagingDirectory)/func.zip'
+    replaceExistingArchive: true
+
+- task: AzureFunctionApp@2
+  displayName: 'Deploy Functions to Function App'
+  inputs:
+    azureSubscription: '$(azureSubscription)'
+    appType: '$(functionAppType)'
+    appName: '$(functionAppName)'
+    package: '$(Build.ArtifactStagingDirectory)/func.zip'
+    deploymentMethod: 'auto'
