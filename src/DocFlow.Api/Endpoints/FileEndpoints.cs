@@ -1,6 +1,8 @@
 using Azure.Storage.Blobs.Models;
 using DocFlow.Api.Blob;
 using DocFlow.Api.Models;
+using DocFlow.Api.Services;
+using System.Diagnostics;
 
 namespace DocFlow.Api.Endpoints;
 
@@ -31,58 +33,78 @@ public static class FileEndpoints
         HttpRequest request,
         DocFlowStorage storage,
         ILoggerFactory loggerFactory,
+        ITelemetryService telemetry,
         CancellationToken ct)
     {
         var log = loggerFactory.CreateLogger("FileEndpoints");
+        var sw = Stopwatch.StartNew();
+        var success = false;
 
-        if (!request.HasFormContentType)
-            return Results.BadRequest(new { error = "Expected multipart/form-data" });
-
-        var form = await request.ReadFormAsync(ct);
-        var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
-        if (file is null)
-            return Results.BadRequest(new { error = "Missing file. Provide a multipart field named 'file'." });
-
-        var fileId = Guid.NewGuid().ToString("N");
-        var utcNow = DateTimeOffset.UtcNow;
-        var blobName = BlobName.NewUploadBlobName(utcNow, fileId, file.FileName);
-
-        var blobClient = storage.Uploads.GetBlobClient(blobName);
-
-        var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        try
         {
-            ["docflow_status"] = "pending",
-            ["docflow_fileid"] = fileId
-        };
+            if (!request.HasFormContentType)
+                return Results.BadRequest(new { error = "Expected multipart/form-data" });
 
-        var headers = new BlobHttpHeaders
+            var form = await request.ReadFormAsync(ct);
+            var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
+            if (file is null)
+                return Results.BadRequest(new { error = "Missing file. Provide a multipart field named 'file'." });
+
+            var fileId = Guid.NewGuid().ToString("N");
+            var utcNow = DateTimeOffset.UtcNow;
+            var blobName = BlobName.NewUploadBlobName(utcNow, fileId, file.FileName);
+
+            var blobClient = storage.Uploads.GetBlobClient(blobName);
+
+            var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["docflow_status"] = "pending",
+                ["docflow_fileid"] = fileId
+            };
+
+            var headers = new BlobHttpHeaders
+            {
+                ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType
+            };
+
+            log.LogInformation("Uploading fileId={FileId} as blob {BlobName} ({ContentType}, {Length} bytes).",
+                fileId, blobName, headers.ContentType, file.Length);
+
+            await using var stream = file.OpenReadStream();
+            await blobClient.UploadAsync(stream, new BlobUploadOptions
+            {
+                HttpHeaders = headers,
+                Metadata = metadata
+            }, ct);
+
+            success = true;
+            sw.Stop();
+
+            telemetry.TrackFileUpload(fileId, file.FileName, file.Length, headers.ContentType, success, sw.Elapsed);
+
+            return Results.Ok(new
+            {
+                fileId,
+                blobName,
+                status = "pending",
+                uploadedAtUtc = utcNow
+            });
+        }
+        catch (Exception ex)
         {
-            ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType
-        };
-
-        log.LogInformation("Uploading fileId={FileId} as blob {BlobName} ({ContentType}, {Length} bytes).",
-            fileId, blobName, headers.ContentType, file.Length);
-
-        await using var stream = file.OpenReadStream();
-        await blobClient.UploadAsync(stream, new BlobUploadOptions
-        {
-            HttpHeaders = headers,
-            Metadata = metadata
-        }, ct);
-
-        return Results.Ok(new
-        {
-            fileId,
-            blobName,
-            status = "pending",
-            uploadedAtUtc = utcNow
-        });
+            sw.Stop();
+            log.LogError(ex, "Error uploading file");
+            telemetry.TrackFileUpload("error", "unknown", 0, "unknown", false, sw.Elapsed);
+            throw;
+        }
     }
 
     private static async Task<IResult> ListFilesAsync(
         DocFlowStorage storage,
+        ITelemetryService telemetry,
         CancellationToken ct)
     {
+        var sw = Stopwatch.StartNew();
         var results = new List<FileListItem>();
 
         await foreach (var item in storage.Uploads.GetBlobsAsync(new GetBlobsOptions { Traits = BlobTraits.Metadata }, ct))
@@ -114,17 +136,27 @@ public static class FileEndpoints
             ));
         }
 
+        sw.Stop();
+        telemetry.TrackFileList(results.Count, sw.Elapsed);
+
         return Results.Ok(results.OrderByDescending(x => x.CreatedOnUtc ?? DateTimeOffset.MinValue));
     }
 
     private static async Task<IResult> GetFileResultAsync(
         string fileId,
         DocFlowStorage storage,
+        ITelemetryService telemetry,
         CancellationToken ct)
     {
+        var sw = Stopwatch.StartNew();
         var blobClient = storage.Processed.GetBlobClient(BlobName.ProcessedBlobName(fileId));
 
-        if (!await blobClient.ExistsAsync(ct))
+        var exists = await blobClient.ExistsAsync(ct);
+        sw.Stop();
+
+        telemetry.TrackFileResultRetrieval(fileId, exists, sw.Elapsed);
+
+        if (!exists)
             return Results.NotFound(new { error = $"Result not found for fileId={fileId}" });
 
         var download = await blobClient.DownloadContentAsync(ct);

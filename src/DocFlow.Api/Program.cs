@@ -1,5 +1,7 @@
 using DocFlow.Api.Blob;
 using DocFlow.Api.Endpoints;
+using DocFlow.Api.HealthChecks;
+using DocFlow.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +16,16 @@ builder.Services.AddSingleton(sp =>
     return new DocFlowStorage(serviceClient, options);
 });
 
+builder.Services.AddApplicationInsightsTelemetry(options =>
+{
+    options.ConnectionString = builder.Configuration["ApplicationInsights:ConnectionString"];
+});
+
+builder.Services.AddSingleton<ITelemetryService, TelemetryService>();
+
+builder.Services.AddHealthChecks()
+    .AddCheck<BlobStorageHealthCheck>("blob_storage", tags: ["ready", "storage"]);
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
@@ -24,7 +36,7 @@ app.UseSwagger();
 app.UseSwaggerUI(options =>
 {
     options.SwaggerEndpoint("/swagger/v1/swagger.json", "DocFlow API v1");
-    options.RoutePrefix = "swagger"; // Accesible en /swagger
+    options.RoutePrefix = "swagger";
 });
 
 // Startup validation: containers should exist.
