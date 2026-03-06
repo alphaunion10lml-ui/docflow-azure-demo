@@ -87,8 +87,8 @@ public sealed class ProcessUploadFunction(DocFlowStorage storage, ILoggerFactory
             // Update metadata
             var newMetadata = new Dictionary<string, string>(props.Metadata, StringComparer.OrdinalIgnoreCase)
             {
-                ["docflow-status"] = "processed",
-                ["docflow-processedat"] = DateTimeOffset.UtcNow.ToString("O")
+                ["docflow_status"] = "processed",
+                ["docflow_processedat"] = DateTimeOffset.UtcNow.ToString("O")
             };
 
             await uploadBlob.SetMetadataAsync(newMetadata, cancellationToken: ct);
@@ -103,8 +103,8 @@ public sealed class ProcessUploadFunction(DocFlowStorage storage, ILoggerFactory
             {
                 var newMetadata = new Dictionary<string, string>(props.Metadata, StringComparer.OrdinalIgnoreCase)
                 {
-                    ["docflow-status"] = "failed",
-                    ["docflow-error"] = Truncate(ex.GetType().Name + ": " + ex.Message, 700)
+                    ["docflow_status"] = "failed",
+                    ["docflow_error"] = Truncate(ex.GetType().Name + ": " + ex.Message, 700)
                 };
                 await uploadBlob.SetMetadataAsync(newMetadata, cancellationToken: ct);
             }
