@@ -43,12 +43,30 @@ public static class FileEndpoints
         try
         {
             if (!request.HasFormContentType)
+            {
+                log.LogWarning("Request does not have form content type. ContentType={ContentType}", request.ContentType);
                 return Results.BadRequest(new { error = "Expected multipart/form-data" });
+            }
 
             var form = await request.ReadFormAsync(ct);
+
+            log.LogInformation("Form received. Files count: {FileCount}, Keys: {Keys}", 
+                form.Files.Count, 
+                string.Join(", ", form.Files.Select(f => f.Name)));
+
             var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
+
             if (file is null)
-                return Results.BadRequest(new { error = "Missing file. Provide a multipart field named 'file'." });
+            {
+                log.LogWarning("No file found in form. Total files in request: {Count}, File names: {Names}",
+                    form.Files.Count,
+                    string.Join(", ", form.Files.Select(f => $"{f.Name}={f.FileName}")));
+
+                return Results.BadRequest(new { 
+                    error = "Missing file. Provide a multipart field named 'file'.",
+                    receivedFiles = form.Files.Select(f => new { name = f.Name, fileName = f.FileName }).ToArray()
+                });
+            }
 
             var fileId = Guid.NewGuid().ToString("N");
             var utcNow = DateTimeOffset.UtcNow;
